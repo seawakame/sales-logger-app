@@ -64,22 +64,12 @@ function setVisitedAt(date) {
 /** 現在地が未取得のうちは保存できないようにする */
 function updateSaveButton() {
   const btn = $('#btn-save');
-  const arrive = $('#btn-arrive');
-  if (!btn || !arrive) return;
+  if (!btn) return;
   const v = Store.getActiveVisit();
-
-  if (v) {                       // 訪問中は「終了して記録」が主役
-    const min = Math.max(0, Math.round((Date.now() - new Date(v.started_at)) / 60000));
-    arrive.hidden = true;
-    btn.disabled = false;
-    btn.classList.add('btn-primary');
-    btn.textContent = '訪問を終了して記録（滞在 ' + min + ' 分）';
-    return;
-  }
-  arrive.hidden = !state.pos;    // 現在地を取得したら「到着」を表示
-  btn.classList.remove('btn-primary');
-  btn.disabled = !state.pos;
-  btn.textContent = state.pos ? 'すぐに記録する' : '先に「現在地を取得」を押してください';
+  btn.disabled = !v;
+  btn.textContent = v
+    ? `訪問を終了して記録（滞在 ${Math.max(0, Math.round((Date.now() - new Date(v.started_at)) / 60000))} 分）`
+    : '先に現在地を取得してください';
 }
 
 /** ISO → 'HH:MM'（滞在時間の表示用） */
@@ -162,7 +152,7 @@ function getCurrentPosition() {
   navigator.geolocation.getCurrentPosition(
     async (p) => {
       btn.disabled = false;
-      btn.innerHTML = '📍 現在地を再取得';
+      btn.innerHTML = '📍 現在地を取得して訪問を開始';
       const acquiredAt = new Date();          // 訪問日時＝現在地を取得したこの瞬間
       state.pos = {
         lat: +p.coords.latitude.toFixed(6),
@@ -171,22 +161,21 @@ function getCurrentPosition() {
         address: '',
         at: toIsoWithOffset(acquiredAt)
       };
-      setVisitedAt(acquiredAt);
-      updateSaveButton();
       renderCompanySuggest();
       renderGeoBox('住所を取得中…');
       showCurrentMap();
+      startVisit();          // 取得＝到着として、そのまま訪問中にする
       if (state.pos.accuracy && state.pos.accuracy > 100) {
-        toast(`GPS の精度が低めです（±${state.pos.accuracy}m）。屋外で再取得すると改善します`);
+        toast(`訪問を開始しました。GPS 精度が低めです（±${state.pos.accuracy}m）`);
       } else {
-        toast('現在地を取得しました', 'ok');
+        toast('訪問を開始しました', 'ok');
       }
       state.pos.address = await Store.reverseGeocode(state.pos.lat, state.pos.lng);
       renderGeoBox();
     },
     (err) => {
       btn.disabled = false;
-      btn.innerHTML = '📍 現在地を取得';
+      btn.innerHTML = '📍 現在地を取得して訪問を開始';
       const msgs = {
         1: '位置情報の利用が許可されていません。ブラウザ/端末の設定で許可してください。',
         2: '位置を特定できませんでした。屋外や窓際で再度お試しください。',
@@ -385,7 +374,7 @@ function resetForm() {
   renderGeoBox();
   $('#map-current').classList.remove('shown');
   $('#geo-hint').style.display = 'none';
-  $('#btn-gps').innerHTML = '📍 現在地を取得';
+  $('#btn-gps').innerHTML = '📍 現在地を取得して訪問を開始';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -406,7 +395,6 @@ function startVisit() {
     memo: $('#f-memo').value.trim()
   });
   renderActiveVisit();
-  toast('訪問を開始しました', 'ok');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -468,11 +456,17 @@ function renderActiveVisit() {
     $('#av-company').textContent = v.company || '（訪問先名を入力してください）';
     $('#av-time').textContent = `${pad(st.getHours())}:${pad(st.getMinutes())} 開始 ・ 滞在 ${min} 分`;
     $('#av-address').textContent = v.address || '';
-    $('#av-departed').hidden = !v.departed;
+    setVisitedAt(st);                       // 訪問日時の欄にも到着時刻を出す
+
+    // 移動の検知と、終了し忘れの注意喚起
+    let notice = '';
     if (v.departed) {
-      $('#av-departed').textContent =
-        `移動を検知しました（約 ${v.departedDistance}m 離れています）。訪問を終了しますか？`;
+      notice = `移動を検知しました（約 ${v.departedDistance}m 離れています）。訪問を終了しますか？`;
+    } else if (min >= 180) {
+      notice = `開始から ${Math.floor(min / 60)} 時間経過しています。終了し忘れていませんか？`;
     }
+    $('#av-departed').hidden = !notice;
+    $('#av-departed').textContent = notice;
   }
   updateSaveButton();
 }
@@ -803,7 +797,6 @@ function bindEvents() {
   $$('.tabbar button').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
 
   $('#btn-gps').addEventListener('click', getCurrentPosition);
-  $('#btn-arrive').addEventListener('click', startVisit);
   $('#btn-cancel-visit').addEventListener('click', cancelVisit);
   ['#f-company', '#f-contact', '#f-category', '#f-member', '#f-memo']
     .forEach((sel) => $(sel).addEventListener('input', syncActiveVisit));

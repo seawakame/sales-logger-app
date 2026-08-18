@@ -47,8 +47,8 @@
       </div>
 
       <div class="card" id="gps-card">
-        <h2>① 現在地を取得</h2>
-        <button type="button" id="btn-gps" class="btn btn-gps">📍 現在地を取得</button>
+        <h2>① 訪問先に到着したら</h2>
+        <button type="button" id="btn-gps" class="btn btn-gps">📍 現在地を取得して訪問を開始</button>
         <div id="geo-box" class="geo-box empty">位置情報が未取得です。上のボタンを押してください。</div>
         <div id="map-current"></div>
         <p class="hint" id="geo-hint" style="display:none">GPS が取得した位置です。地図を動かしても記録される座標は変わりません。円は誤差の目安です。</p>
@@ -104,8 +104,7 @@
         </div>
 
         <div class="sticky-save">
-          <button type="button" id="btn-arrive" class="btn btn-primary" hidden>到着（訪問を開始）</button>
-          <button type="submit" id="btn-save" class="btn">すぐに記録する</button>
+          <button type="submit" id="btn-save" class="btn btn-primary">先に現在地を取得してください</button>
         </div>
       </form>
 
