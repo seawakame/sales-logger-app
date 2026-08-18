@@ -13,7 +13,8 @@ const Store = (() => {
     logs:     'sl.logs.v1',      // GASモード=表示キャッシュ / ローカルモード=本体
     queue:    'sl.queue.v1',
     members:  'sl.members.v1',
-    sync:     'sl.lastSync.v1'
+    sync:     'sl.lastSync.v1',
+    active:   'sl.active.v1'     // 訪問中（到着済み・未終了）の情報
   };
 
   const PALETTE = [
@@ -125,6 +126,12 @@ const Store = (() => {
   const setQueue = (q) => save(KEYS.queue, q);
   const lastSync = () => load(KEYS.sync, '');
 
+  /* --------------------- 訪問中の状態 --------------------- */
+  /** 「到着」を押してから「終了」するまでの情報。端末内に保持し、アプリを閉じても残ります。 */
+  const getActiveVisit   = () => load(KEYS.active, null);
+  const setActiveVisit   = (v) => save(KEYS.active, v);
+  const clearActiveVisit = () => { try { localStorage.removeItem(KEYS.active); } catch (e) {} };
+
   const upsert = (logs, rec) => {
     const i = logs.findIndex((l) => l.id === rec.id);
     if (i >= 0) logs[i] = Object.assign({}, logs[i], rec); else logs.unshift(rec);
@@ -172,6 +179,8 @@ const Store = (() => {
       lng: (input.lng ?? null),
       accuracy: (input.accuracy ?? null),
       address: input.address || '',
+      left_at: input.left_at || '',
+      duration_min: (input.duration_min ?? null),
       device: navigator.userAgent.slice(0, 120),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -403,8 +412,8 @@ const Store = (() => {
 
   /* ------------------------------ CSV ------------------------------ */
   function toCsv(logs) {
-    const cols = ['visited_at', 'member', 'company', 'contact', 'category', 'memo', 'address', 'lat', 'lng', 'accuracy'];
-    const head = ['訪問日時', '担当者', '訪問先名', '先方担当者', '訪問区分', 'メモ', '住所', '緯度', '経度', '精度(m)'];
+    const cols = ['visited_at', 'left_at', 'duration_min', 'member', 'company', 'contact', 'category', 'memo', 'address', 'lat', 'lng', 'accuracy'];
+    const head = ['訪問日時', '退出時刻', '滞在(分)', '担当者', '訪問先名', '先方担当者', '訪問区分', 'メモ', '住所', '緯度', '経度', '精度(m)'];
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [head.map(esc).join(',')];
     logs.forEach((l) => lines.push(cols.map((c) => esc(l[c])).join(',')));
@@ -422,6 +431,7 @@ const Store = (() => {
     apiGet, apiPost, ping,
     getMembers, setMembers, colorFor,
     getLogs, setLogs, getQueue, lastSync, enqueueAll,
+    getActiveVisit, setActiveVisit, clearActiveVisit,
     fetchAll, create, flushQueue, remove,
     reverseGeocode, toCsv, clearLocal, uuid,
     nearbyPastVisits, nearbyPlaces, distanceM, contactsFor

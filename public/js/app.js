@@ -64,10 +64,29 @@ function setVisitedAt(date) {
 /** 現在地が未取得のうちは保存できないようにする */
 function updateSaveButton() {
   const btn = $('#btn-save');
-  if (!btn) return;
-  const ready = !!state.pos;
-  btn.disabled = !ready;
-  btn.textContent = ready ? 'この内容で記録する' : '先に「現在地を取得」を押してください';
+  const arrive = $('#btn-arrive');
+  if (!btn || !arrive) return;
+  const v = Store.getActiveVisit();
+
+  if (v) {                       // 訪問中は「終了して記録」が主役
+    const min = Math.max(0, Math.round((Date.now() - new Date(v.started_at)) / 60000));
+    arrive.hidden = true;
+    btn.disabled = false;
+    btn.classList.add('btn-primary');
+    btn.textContent = '訪問を終了して記録（滞在 ' + min + ' 分）';
+    return;
+  }
+  arrive.hidden = !state.pos;    // 現在地を取得したら「到着」を表示
+  btn.classList.remove('btn-primary');
+  btn.disabled = !state.pos;
+  btn.textContent = state.pos ? 'すぐに記録する' : '先に「現在地を取得」を押してください';
+}
+
+/** ISO → 'HH:MM'（滞在時間の表示用） */
+function hhmm(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 let toastTimer = null;
@@ -125,6 +144,7 @@ function switchView(name) {
     initMainMap();
     setTimeout(() => { state.maps.main.invalidateSize(); renderMap(); }, 60);
   }
+  if (name === 'record') checkDeparture();
   if (name === 'record' && state.maps.current) {
     setTimeout(() => state.maps.current.invalidateSize(), 60);
   }
@@ -311,6 +331,7 @@ function renderContactSuggest() {
 /* ============================== ② 記録の保存 ============================== */
 async function onSubmit(e) {
   e.preventDefault();
+  if (Store.getActiveVisit()) { await endVisit(); return; }
   const company = $('#f-company').value.trim();
   const member  = $('#f-member').value;
   // 訪問日時は現在地を取得した瞬間の時刻。画面からは変更できない
@@ -356,6 +377,7 @@ function resetForm() {
   setVisitedAt(null);
   updateSaveButton();
   suggestToken++;
+  renderActiveVisit();
   state.contactAuto = false;
   state.contactOwner = '';
   $('#company-suggest').innerHTML = '';
@@ -365,6 +387,143 @@ function resetForm() {
   $('#geo-hint').style.display = 'none';
   $('#btn-gps').innerHTML = '📍 現在地を取得';
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ==================== 到着 → 訪問中 → 終了（滞在時間の記録） ==================== */
+
+/** 「到着」：現在地と時刻を確定し、訪問中の状態にする */
+function startVisit() {
+  if (!state.pos) { toast('先に「現在地を取得」を押してください', 'err'); return; }
+  Store.setActiveVisit({
+    id: Store.uuid(),
+    started_at: state.pos.at,
+    lat: state.pos.lat, lng: state.pos.lng,
+    accuracy: state.pos.accuracy, address: state.pos.address,
+    member: $('#f-member').value,
+    company: $('#f-company').value.trim(),
+    contact: $('#f-contact').value.trim(),
+    category: $('#f-category').value,
+    memo: $('#f-memo').value.trim()
+  });
+  renderActiveVisit();
+  toast('訪問を開始しました', 'ok');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/** 「訪問を終了して記録」：到着時刻・座標に滞在時間を付けて保存する */
+async function endVisit() {
+  const v = Store.getActiveVisit();
+  if (!v) return;
+  const company = $('#f-company').value.trim();
+  if (!company) { toast('訪問先名を入力してください', 'err'); $('#f-company').focus(); return; }
+
+  const left = new Date();
+  const minutes = Math.max(0, Math.round((left - new Date(v.started_at)) / 60000));
+  const btn = $('#btn-save');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 保存中…';
+  try {
+    const { pending } = await Store.create({
+      id: v.id,
+      visited_at: v.started_at,
+      left_at: toIsoWithOffset(left),
+      duration_min: minutes,
+      member: $('#f-member').value,
+      company,
+      contact: $('#f-contact').value.trim(),
+      category: $('#f-category').value,
+      memo: $('#f-memo').value.trim(),
+      lat: v.lat, lng: v.lng, accuracy: v.accuracy, address: v.address
+    });
+    Store.clearActiveVisit();
+    state.logs = Store.getLogs();
+    renderList(); renderMap(); renderStatus(); renderCompanyList();
+    toast(pending ? `オフラインのため端末に保存しました（滞在 ${minutes} 分）`
+                  : `記録しました（滞在 ${minutes} 分）`, pending ? '' : 'ok');
+    resetForm();
+  } catch (err) {
+    toast(`保存に失敗しました: ${err.message}`, 'err');
+  } finally {
+    renderActiveVisit();
+  }
+}
+
+/** 訪問中の記録を破棄する */
+function cancelVisit() {
+  if (!confirm('訪問中の記録を取り消します。よろしいですか？')) return;
+  Store.clearActiveVisit();
+  resetForm();
+  toast('取り消しました');
+}
+
+/** 訪問中バナーの描画（経過時間は 30 秒ごとに更新） */
+function renderActiveVisit() {
+  const v = Store.getActiveVisit();
+  const box = $('#active-visit');
+  box.hidden = !v;
+  $('#gps-card').hidden = !!v;
+  if (v) {
+    const st = new Date(v.started_at);
+    const min = Math.max(0, Math.round((Date.now() - st) / 60000));
+    $('#av-company').textContent = v.company || '（訪問先名を入力してください）';
+    $('#av-time').textContent = `${pad(st.getHours())}:${pad(st.getMinutes())} 開始 ・ 滞在 ${min} 分`;
+    $('#av-address').textContent = v.address || '';
+    $('#av-departed').hidden = !v.departed;
+    if (v.departed) {
+      $('#av-departed').textContent =
+        `移動を検知しました（約 ${v.departedDistance}m 離れています）。訪問を終了しますか？`;
+    }
+  }
+  updateSaveButton();
+}
+
+/** 入力内容を訪問中の情報にも保存する（アプリを閉じても復元できるように） */
+function syncActiveVisit() {
+  const v = Store.getActiveVisit();
+  if (!v) return;
+  v.company  = $('#f-company').value.trim();
+  v.contact  = $('#f-contact').value.trim();
+  v.category = $('#f-category').value;
+  v.member   = $('#f-member').value;
+  v.memo     = $('#f-memo').value.trim();
+  Store.setActiveVisit(v);
+  $('#av-company').textContent = v.company || '（訪問先名を入力してください）';
+}
+
+/** 訪問中の入力内容をフォームへ戻す（アプリ再起動時） */
+function restoreActiveVisitForm() {
+  const v = Store.getActiveVisit();
+  if (!v) return;
+  if (v.company)  { $('#f-company').value = v.company; state.contactOwner = v.company; }
+  if (v.contact)  $('#f-contact').value = v.contact;
+  if (v.category) $('#f-category').value = v.category;
+  if (v.memo)     $('#f-memo').value = v.memo;
+  if (v.member && [...$('#f-member').options].some((o) => o.value === v.member)) $('#f-member').value = v.member;
+}
+
+/**
+ * 訪問中に到着地点から大きく離れていたら「終了しますか？」と促す。
+ * バックグラウンドでは位置を取得できないため、アプリを開いた時点で判定します。
+ */
+function checkDeparture() {
+  const v = Store.getActiveVisit();
+  if (!v || !navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (p) => {
+      const cur = Store.getActiveVisit();
+      if (!cur) return;
+      const d = Store.distanceM(cur.lat, cur.lng, p.coords.latitude, p.coords.longitude);
+      const departed = d > 200;
+      if (departed !== !!cur.departed) {
+        cur.departed = departed;
+        cur.departedDistance = Math.round(d);
+        Store.setActiveVisit(cur);
+        renderActiveVisit();
+      }
+    },
+    () => {},
+    { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+  );
 }
 
 /* ================================ 一覧 ================================ */
@@ -405,6 +564,7 @@ function renderList() {
       <div class="meta">
         <span class="dot" style="background:${color}"></span>${esc(l.member)}
         ${l.category ? `<span class="badge">${esc(l.category)}</span>` : ''}
+        ${l.duration_min != null ? `<span class="badge">滞在 ${l.duration_min}分</span>` : ''}
         ${l.address ? `<span>📍 ${esc(l.address)}</span>` : ''}
       </div>
       ${l.memo ? `<div class="memo">${esc(l.memo)}</div>` : ''}
@@ -474,6 +634,8 @@ function openDetail(id) {
     `<span class="dot" style="background:${Store.colorFor(l.member)};margin-right:6px"></span>${esc(l.company || '(訪問先名なし)')}`;
   $('#m-body').innerHTML =
     kv('訪問日時', new Date(l.visited_at).toLocaleString('ja-JP')) +
+    kv('滞在時間', l.duration_min != null
+      ? `${l.duration_min} 分（${hhmm(l.visited_at)} 〜 ${hhmm(l.left_at)}）` : '') +
     kv('担当者', l.member) +
     kv('訪問区分', l.category) +
     kv('先方担当', l.contact) +
@@ -641,6 +803,10 @@ function bindEvents() {
   $$('.tabbar button').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
 
   $('#btn-gps').addEventListener('click', getCurrentPosition);
+  $('#btn-arrive').addEventListener('click', startVisit);
+  $('#btn-cancel-visit').addEventListener('click', cancelVisit);
+  ['#f-company', '#f-contact', '#f-category', '#f-member', '#f-memo']
+    .forEach((sel) => $(sel).addEventListener('input', syncActiveVisit));
   $('#company-suggest').addEventListener('click', (e) => {
     const chip = e.target.closest('.suggest-chip');
     if (!chip) return;
@@ -773,6 +939,11 @@ async function init() {
   renderMembers();
   const my = Store.getSettings().myMember;
   if (my && [...$('#f-member').options].some((o) => o.value === my)) $('#f-member').value = my;
+
+  restoreActiveVisitForm();
+  renderActiveVisit();
+  checkDeparture();
+  setInterval(() => { if (Store.getActiveVisit()) renderActiveVisit(); }, 30000);
 
   state.logs = Store.getLogs();
   renderList(); renderCompanyList(); renderStatus();

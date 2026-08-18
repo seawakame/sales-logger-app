@@ -35,7 +35,18 @@
   <section id="view-record" class="view active">
     <div class="container">
 
-      <div class="card">
+      <div id="active-visit" class="active-visit" hidden>
+        <div class="av-top">
+          <span class="av-badge"><span class="av-dot"></span>訪問中</span>
+          <button type="button" id="btn-cancel-visit" class="av-cancel">取り消す</button>
+        </div>
+        <div class="av-company" id="av-company">—</div>
+        <div class="av-meta" id="av-time">—</div>
+        <div class="av-meta" id="av-address"></div>
+        <div class="av-departed" id="av-departed" hidden>移動を検知しました。訪問を終了しますか？</div>
+      </div>
+
+      <div class="card" id="gps-card">
         <h2>① 現在地を取得</h2>
         <button type="button" id="btn-gps" class="btn btn-gps">📍 現在地を取得</button>
         <div id="geo-box" class="geo-box empty">位置情報が未取得です。上のボタンを押してください。</div>
@@ -93,7 +104,8 @@
         </div>
 
         <div class="sticky-save">
-          <button type="submit" id="btn-save" class="btn btn-primary">この内容で記録する</button>
+          <button type="button" id="btn-arrive" class="btn btn-primary" hidden>到着（訪問を開始）</button>
+          <button type="submit" id="btn-save" class="btn">すぐに記録する</button>
         </div>
       </form>
 

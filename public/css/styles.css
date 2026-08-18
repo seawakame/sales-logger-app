@@ -382,3 +382,37 @@ select { appearance: none; background-image: none; }
 .suggest-chip .d { font-size: 11px; font-weight: 400; color: var(--text-muted); flex: none; }
 .suggest-chip.history { border-color: var(--primary); }
 .suggest-chip.on { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+
+/* ------------------------ 訪問中バナー ------------------------ */
+.active-visit {
+  background: var(--surface);
+  border: 2px solid var(--primary);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.av-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.av-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--primary); color: #fff;
+  font-size: 11.5px; font-weight: 700;
+  padding: 3px 10px; border-radius: 999px;
+}
+.av-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #fff;
+  animation: avPulse 1.6s ease-in-out infinite;
+}
+@keyframes avPulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+.av-cancel {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); font-family: inherit; font-size: 12px;
+  text-decoration: underline; padding: 4px;
+}
+.av-company { font-size: 17px; font-weight: 700; line-height: 1.4; }
+.av-meta { font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }
+.av-departed {
+  margin-top: 10px; padding: 9px 11px;
+  background: var(--primary-soft); border-radius: 9px;
+  font-size: 12.5px; font-weight: 700; color: var(--primary);
+}
