@@ -1,0 +1,28 @@
+{
+  "name": "営業訪問ログ",
+  "short_name": "営業ログ",
+  "description": "外回り営業の訪問ログをGPS付きで記録し、地図と一覧で可視化するアプリ",
+  "lang": "ja",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "id": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f4f5fa",
+  "theme_color": "#4f46e5",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "今すぐ記録する",
+      "short_name": "記録",
+      "description": "現在地を取得して訪問ログを入力します",
+      "url": "./index.html"
+    }
+  ]
+}
