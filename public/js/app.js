@@ -87,10 +87,12 @@ const state = {
   filter: { member: '', q: '', from: '', to: '' },
   hiddenMembers: new Set(),
   maps: { current: null, main: null },
-  markers: { current: null, layer: null },
+  markers: { current: null, layer: null, accuracy: null },
   view: 'record',
   deferredInstall: null,
-  editingId: null
+  editingId: null,
+  contactAuto: false,     // 先方担当者が自動入力された値かどうか
+  contactOwner: ''        // その担当者名がどの訪問先に紐づくか
 };
 
 /* ------------------------------ ピン（SVG） ------------------------------ */
@@ -154,7 +156,11 @@ function getCurrentPosition() {
       renderCompanySuggest();
       renderGeoBox('住所を取得中…');
       showCurrentMap();
-      toast('現在地を取得しました', 'ok');
+      if (state.pos.accuracy && state.pos.accuracy > 100) {
+        toast(`GPS の精度が低めです（±${state.pos.accuracy}m）。屋外で再取得すると改善します`);
+      } else {
+        toast('現在地を取得しました', 'ok');
+      }
       state.pos.address = await Store.reverseGeocode(state.pos.lat, state.pos.lng);
       renderGeoBox();
     },
@@ -188,42 +194,46 @@ function renderGeoBox(addressOverride) {
     (accuracy ? `<div class="acc">誤差およそ ±${accuracy}m</div>` : '');
 }
 
-/** 記録画面のミニ地図（初回のみ生成） */
+/**
+ * 記録画面のミニ地図（表示専用）
+ * 位置の改ざんを防ぐため、ピンのドラッグと地図タップによる座標変更はできません。
+ * 地図のパン・ズームは可能ですが、記録される座標は GPS が返した値のまま変わりません。
+ */
 function showCurrentMap() {
   const el = $('#map-current');
   el.classList.add('shown');
   $('#geo-hint').style.display = 'block';
 
+  const pos = [state.pos.lat, state.pos.lng];
   if (!state.maps.current) {
-    state.maps.current = L.map(el, { zoomControl: true, attributionControl: true })
-      .setView([state.pos.lat, state.pos.lng], 17);
+    state.maps.current = L.map(el, { zoomControl: true, attributionControl: true }).setView(pos, 17);
     osmLayer().addTo(state.maps.current);
-
-    state.markers.current = L.marker([state.pos.lat, state.pos.lng], {
-      icon: pinIcon(Store.colorFor($('#f-member').value)), draggable: true
+    state.markers.current = L.marker(pos, {
+      icon: pinIcon(Store.colorFor($('#f-member').value)),
+      draggable: false,
+      interactive: false
     }).addTo(state.maps.current);
-
-    const onMove = async (lat, lng) => {
-      state.pos.lat = +lat.toFixed(6);
-      state.pos.lng = +lng.toFixed(6);
-      state.pos.accuracy = null;      // 手動調整したので GPS 精度は無効化
-      renderGeoBox('住所を取得中…');
-      renderCompanySuggest(false);
-      state.pos.address = await Store.reverseGeocode(state.pos.lat, state.pos.lng);
-      renderGeoBox();
-    };
-    state.markers.current.on('dragend', (e) => {
-      const ll = e.target.getLatLng();
-      onMove(ll.lat, ll.lng);
-    });
-    state.maps.current.on('click', (e) => {
-      state.markers.current.setLatLng(e.latlng);
-      onMove(e.latlng.lat, e.latlng.lng);
-    });
   } else {
-    state.maps.current.setView([state.pos.lat, state.pos.lng], 17);
-    state.markers.current.setLatLng([state.pos.lat, state.pos.lng]);
+    state.maps.current.setView(pos, 17);
+    state.markers.current.setLatLng(pos);
   }
+
+  // GPS の誤差半径を円で可視化する（数値だけより精度の実感が伝わる）
+  if (state.markers.accuracy) {
+    state.maps.current.removeLayer(state.markers.accuracy);
+    state.markers.accuracy = null;
+  }
+  if (state.pos.accuracy) {
+    const themeColor =
+      getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#4f46e5';
+    state.markers.accuracy = L.circle(pos, {
+      radius: state.pos.accuracy,
+      color: themeColor, weight: 1, opacity: .55,
+      fillColor: themeColor, fillOpacity: .12,
+      interactive: false
+    }).addTo(state.maps.current);
+  }
+
   setTimeout(() => state.maps.current.invalidateSize(), 60);
 }
 
@@ -234,9 +244,8 @@ let suggestToken = 0;
  * 現在地から訪問先名の候補を表示します。
  *  ・過去の訪問履歴（通信不要・即時）を最優先で表示
  *  ・OpenStreetMap の周辺施設は取得でき次第あとから追記（失敗時は何も出さない）
- * @param {boolean} withOsm false なら履歴のみ更新（地図ドラッグ時など）
  */
-async function renderCompanySuggest(withOsm = true) {
+async function renderCompanySuggest() {
   const box = $('#company-suggest');
   const token = ++suggestToken;
   if (!state.pos) { box.innerHTML = ''; return; }
@@ -253,7 +262,6 @@ async function renderCompanySuggest(withOsm = true) {
     ? `<div class="suggest-label">この付近の過去の訪問先</div>${chips(past, 'history')}`
     : '';
   box.innerHTML = html;
-  if (!withOsm) return;
 
   const places = await Store.nearbyPlaces(lat, lng);
   if (token !== suggestToken || !state.pos) return;   // 取り直された場合は破棄
@@ -263,6 +271,41 @@ async function renderCompanySuggest(withOsm = true) {
     box.innerHTML = html +
       `<div class="suggest-label">周辺の施設（OpenStreetMap）</div>${chips(fresh, 'osm')}`;
   }
+}
+
+/**
+ * 訪問先名が確定したら、その訪問先で前回会った先方担当者を自動入力します。
+ *  ・担当者を手入力したあとは上書きしません
+ *  ・複数の担当者と面談実績がある訪問先では、切り替え用の候補を表示します
+ */
+function renderContactSuggest() {
+  const box = $('#contact-suggest');
+  const input = $('#f-contact');
+  const company = $('#f-company').value.trim();
+  const list = Store.contactsFor(company);
+
+  // 訪問先が変わったとき、前の訪問先から引き継いだ担当者は無効なので入れ替える。
+  // ただし手入力された名前（前の訪問先の履歴に無い値）は消さない。
+  if (state.contactOwner !== company) {
+    const carriedOver = !input.value.trim() || state.contactAuto ||
+      Store.contactsFor(state.contactOwner).some((c) => c.name === input.value.trim());
+    if (carriedOver) {
+      input.value = list.length ? list[0].name : '';
+      state.contactAuto = list.length > 0;
+    }
+    state.contactOwner = company;
+  }
+
+  if (!list.length) { box.innerHTML = ''; return; }
+  if (!input.value.trim()) { input.value = list[0].name; state.contactAuto = true; }
+
+  box.innerHTML = list.length > 1
+    ? '<div class="suggest-label">この訪問先で記録のある担当者</div><div class="suggest-row">' +
+      list.map((c) =>
+        `<button type="button" class="suggest-chip${c.name === input.value ? ' on' : ''}" data-name="${esc(c.name)}">` +
+        `<span class="name">${esc(c.name)}</span><span class="d">${esc(fmtDateTime(c.visited_at))}</span></button>`
+      ).join('') + '</div>'
+    : '<p class="hint">前回と同じ担当者を自動入力しました（修正できます）</p>';
 }
 
 /* ============================== ② 記録の保存 ============================== */
@@ -313,7 +356,10 @@ function resetForm() {
   setVisitedAt(null);
   updateSaveButton();
   suggestToken++;
+  state.contactAuto = false;
+  state.contactOwner = '';
   $('#company-suggest').innerHTML = '';
+  $('#contact-suggest').innerHTML = '';
   renderGeoBox();
   $('#map-current').classList.remove('shown');
   $('#geo-hint').style.display = 'none';
@@ -599,9 +645,19 @@ function bindEvents() {
     const chip = e.target.closest('.suggest-chip');
     if (!chip) return;
     $('#f-company').value = chip.dataset.name;
+    renderContactSuggest();
     $('#f-company').focus();
   });
   $('#log-form').addEventListener('submit', onSubmit);
+  $('#f-company').addEventListener('input', renderContactSuggest);
+  $('#f-contact').addEventListener('input', () => { state.contactAuto = false; });
+  $('#contact-suggest').addEventListener('click', (e) => {
+    const chip = e.target.closest('.suggest-chip');
+    if (!chip) return;
+    $('#f-contact').value = chip.dataset.name;
+    state.contactAuto = false;
+    renderContactSuggest();
+  });
   $('#f-member').addEventListener('change', () => {
     if (state.markers.current) state.markers.current.setIcon(pinIcon(Store.colorFor($('#f-member').value)));
   });

@@ -40,7 +40,7 @@
         <button type="button" id="btn-gps" class="btn btn-gps">📍 現在地を取得</button>
         <div id="geo-box" class="geo-box empty">位置情報が未取得です。上のボタンを押してください。</div>
         <div id="map-current"></div>
-        <p class="hint" id="geo-hint" style="display:none">ピンをドラッグ、または地図をタップすると位置を微調整できます。</p>
+        <p class="hint" id="geo-hint" style="display:none">GPS が取得した位置です。地図を動かしても記録される座標は変わりません。円は誤差の目安です。</p>
       </div>
 
       <form id="log-form" class="card" autocomplete="off">
@@ -84,6 +84,7 @@
         <div class="field">
           <label for="f-contact">先方担当者</label>
           <input id="f-contact" placeholder="例）購買部 山田様">
+          <div id="contact-suggest" class="suggest"></div>
         </div>
 
         <div class="field">

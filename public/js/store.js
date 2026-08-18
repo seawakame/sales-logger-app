@@ -382,6 +382,25 @@ const Store = (() => {
     }
   }
 
+  /**
+   * 指定した訪問先で過去に会った「先方担当者」を、直近に会った順で返します。
+   * （getLogs() は訪問日時の降順で保持しているため、先頭が最新）
+   */
+  function contactsFor(company) {
+    const key = String(company || '').trim();
+    if (!key) return [];
+    const seen = new Set();
+    const out = [];
+    getLogs().forEach((l) => {
+      if (String(l.company || '').trim() !== key) return;
+      const name = String(l.contact || '').trim();
+      if (!name || seen.has(name)) return;
+      seen.add(name);
+      out.push({ name, visited_at: l.visited_at });
+    });
+    return out;
+  }
+
   /* ------------------------------ CSV ------------------------------ */
   function toCsv(logs) {
     const cols = ['visited_at', 'member', 'company', 'contact', 'category', 'memo', 'address', 'lat', 'lng', 'accuracy'];
@@ -405,6 +424,6 @@ const Store = (() => {
     getLogs, setLogs, getQueue, lastSync, enqueueAll,
     fetchAll, create, flushQueue, remove,
     reverseGeocode, toCsv, clearLocal, uuid,
-    nearbyPastVisits, nearbyPlaces, distanceM
+    nearbyPastVisits, nearbyPlaces, distanceM, contactsFor
   };
 })();
