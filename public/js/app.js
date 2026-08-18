@@ -652,6 +652,14 @@ function openDetail(id) {
     (l._pending ? '<p class="note" style="color:#d97706;margin-top:8px">未送信（オンライン復帰時に自動送信されます）</p>' : '');
 
   $('#m-map').style.display = (l.lat != null && l.lng != null) ? '' : 'none';
+
+  const myName = Store.getSettings().myMember;
+  const isOwner = !myName || l.member === myName;   // 自分の担当者名が未設定なら判定できないため許可
+  const delBtn = $('#m-delete');
+  delBtn.disabled = !isOwner;
+  delBtn.title = isOwner ? '' : `${esc(l.member)} さんの記録のため削除できません`;
+  delBtn.textContent = isOwner ? '削除' : `${esc(l.member)}さんの記録`;
+
   $('#modal').classList.add('open');
 }
 
@@ -659,9 +667,15 @@ const closeModal = () => { $('#modal').classList.remove('open'); state.editingId
 
 async function deleteCurrent() {
   const id = state.editingId;
+  const rec = state.logs.find((x) => x.id === id);
+  const myName = Store.getSettings().myMember;
+  if (rec && myName && rec.member !== myName) {
+    toast(`${rec.member} さんの記録のため削除できません`, 'err');
+    return;
+  }
   if (!id || !confirm('この訪問ログを削除しますか？')) return;
   try {
-    await Store.remove(id);
+    await Store.remove(id, myName);
     state.logs = Store.getLogs();
     closeModal(); renderList(); renderMap(); renderStatus();
     toast('削除しました', 'ok');
@@ -921,21 +935,92 @@ function bindEvents() {
   window.addEventListener('offline', renderStatus);
 
   // PWA インストール
+  setupInstallButton();
+}
+
+/* ================================ PWA インストール ================================ */
+
+/** 既にホーム画面から起動している（standalone 表示）かどうか */
+function isStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true;   // iOS Safari 独自プロパティ
+}
+
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);   // iPadOS 対策
+const isAndroid = /android/i.test(navigator.userAgent);
+
+/**
+ * 「ホーム画面に追加」ボタンの表示を切り替えます。
+ *  ・Android Chrome 系: beforeinstallprompt を待って、標準のインストールダイアログを出す
+ *  ・iOS Safari       : beforeinstallprompt が存在しないため、常時ボタンを出して手順を案内する
+ *  ・既に追加済み       : ボタンは出さない
+ */
+function setupInstallButton() {
+  const btn = $('#btn-install');
+  const note = $('#install-status');
+
+  if (isStandalone()) {
+    btn.hidden = true;
+    note.textContent = '✅ ホーム画面から起動しています';
+    return;
+  }
+
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     state.deferredInstall = e;
-    $('#btn-install').style.display = '';
+    btn.hidden = false;
+    note.textContent = '';
   });
-  $('#btn-install').addEventListener('click', async () => {
-    if (!state.deferredInstall) {
-      alert('メニューから「ホーム画面に追加」を選択してください。\n\niPhone (Safari)：共有ボタン → ホーム画面に追加\nAndroid (Chrome)：︙ → アプリをインストール');
+
+  window.addEventListener('appinstalled', () => {
+    btn.hidden = true;
+    note.textContent = '✅ ホーム画面に追加しました';
+    state.deferredInstall = null;
+  });
+
+  btn.addEventListener('click', async () => {
+    if (state.deferredInstall) {
+      state.deferredInstall.prompt();
+      const choice = await state.deferredInstall.userChoice;
+      state.deferredInstall = null;
+      if (choice.outcome === 'accepted') { btn.hidden = true; note.textContent = '✅ ホーム画面に追加しました'; }
       return;
     }
-    state.deferredInstall.prompt();
-    await state.deferredInstall.userChoice;
-    state.deferredInstall = null;
-    $('#btn-install').style.display = 'none';
+    showInstallInstructions();
   });
+
+  if (isIOS) {
+    // iOS は自動プロンプトが存在しないため、常にボタンを出して手順を案内する
+    btn.hidden = false;
+    btn.textContent = '📲 ホーム画面に追加する方法';
+  } else if (!isAndroid) {
+    // PC のブラウザ等、対応が不明な環境でも案内だけは出す
+    btn.hidden = false;
+    note.textContent = 'この端末では自動インストールに対応していない場合があります';
+  }
+  // Android Chrome はここでは隠したまま。beforeinstallprompt が発火したら表示される
+}
+
+/** 手順を案内するダイアログ（OS 別） */
+function showInstallInstructions() {
+  if (isIOS) {
+    alert(
+      'ホーム画面に追加する方法（Safari）\n\n' +
+      '① 画面下部の共有ボタン（四角から矢印が出ているアイコン）をタップ\n' +
+      '② 「ホーム画面に追加」を選択\n' +
+      '③ 右上の「追加」をタップ\n\n' +
+      '※ Chrome や Instagram 内蔵ブラウザでは表示できません。Safari で開き直してください。'
+    );
+  } else if (isAndroid) {
+    alert(
+      'ホーム画面に追加する方法（Chrome）\n\n' +
+      '① 右上の ⋮ メニューをタップ\n' +
+      '② 「アプリをインストール」または「ホーム画面に追加」を選択'
+    );
+  } else {
+    alert('ブラウザのメニューから「インストール」または「ホーム画面に追加」を選択してください。');
+  }
 }
 
 /* ================================ 起動 ================================ */

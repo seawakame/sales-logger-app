@@ -229,9 +229,10 @@ const Store = (() => {
   }
 
   /** 削除（GAS 側は論理削除） */
-  async function remove(id) {
+  /** 削除。GAS 連携時は actor（自分の担当者名）を送り、他の担当者の記録は保護します。 */
+  async function remove(id, actor) {
     setQueue(getQueue().filter((r) => r.id !== id));
-    if (mode() === 'gas') await apiPost('delete', { id });
+    if (mode() === 'gas') await apiPost('delete', { id, actor: actor || '' });
     setLogs(getLogs().filter((l) => l.id !== id));
   }
 
