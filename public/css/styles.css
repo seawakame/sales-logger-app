@@ -345,3 +345,19 @@ select { appearance: none; background-image: none; }
 .divider { height: 1px; background: var(--border); margin: 14px 0; }
 .status-line { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; }
 .status-line .v { font-weight: 700; }
+
+/* --------------------- 変更できない表示専用の欄 --------------------- */
+.readonly-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  user-select: none;
+}
+.readonly-box .lock { font-size: 13px; opacity: .6; }

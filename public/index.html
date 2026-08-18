@@ -71,8 +71,13 @@
         </div>
 
         <div class="field">
-          <label for="f-visited">訪問日時（自動取得・修正可）<span class="req">*</span></label>
-          <input type="datetime-local" id="f-visited" required>
+          <label>訪問日時（現在地を取得した時刻）</label>
+          <div class="readonly-box">
+            <span class="lock">🔒</span>
+            <span id="f-visited-text">現在地を取得すると確定します</span>
+          </div>
+          <p class="hint">位置情報の取得が記録の必須条件です。日時はあとから変更できません。</p>
+          <input type="hidden" id="f-visited">
         </div>
 
         <div class="field">
@@ -145,8 +150,8 @@
         </div>
         <div class="field">
           <label for="s-member">自分の担当者名（記録画面の初期選択）</label>
-          <input id="s-member" list="member-list" placeholder="例）営業A">
-          <datalist id="member-list"></datalist>
+          <select id="s-member"></select>
+          <p class="note" style="margin-top:6px">担当者マスタ（Members シート）から選びます。一覧に無い場合はシートに追加してから「今すぐ同期」を押してください。</p>
         </div>
         <div class="btn-row">
           <button type="button" id="btn-test" class="btn">接続テスト</button>

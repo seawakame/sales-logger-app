@@ -39,6 +39,37 @@ function fmtDateTime(iso) {
   return `${d.getFullYear() === now.getFullYear() ? '' : d.getFullYear() + '/'}${d.getMonth() + 1}/${d.getDate()} ${hm}`;
 }
 
+/**
+ * 訪問日時の表示を更新します。
+ *  ・現在地を取得した瞬間の時刻で確定し、以後は変化しません
+ *  ・画面上は表示専用（値は hidden input が保持）で、担当者は変更できません
+ *  ・null を渡すと未取得の状態に戻します
+ */
+function setVisitedAt(date) {
+  const el = $('#f-visited-text');
+  if (!date) {
+    $('#f-visited').value = '';
+    if (el) { el.textContent = '現在地を取得すると確定します'; el.style.opacity = '.55'; }
+    return;
+  }
+  $('#f-visited').value = toIsoWithOffset(date);
+  if (el) {
+    el.textContent =
+      `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ` +
+      `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    el.style.opacity = '';
+  }
+}
+
+/** 現在地が未取得のうちは保存できないようにする */
+function updateSaveButton() {
+  const btn = $('#btn-save');
+  if (!btn) return;
+  const ready = !!state.pos;
+  btn.disabled = !ready;
+  btn.textContent = ready ? 'この内容で記録する' : '先に「現在地を取得」を押してください';
+}
+
 let toastTimer = null;
 function toast(msg, type = '') {
   const el = $('#toast');
@@ -110,12 +141,16 @@ function getCurrentPosition() {
     async (p) => {
       btn.disabled = false;
       btn.innerHTML = '📍 現在地を再取得';
+      const acquiredAt = new Date();          // 訪問日時＝現在地を取得したこの瞬間
       state.pos = {
         lat: +p.coords.latitude.toFixed(6),
         lng: +p.coords.longitude.toFixed(6),
         accuracy: p.coords.accuracy ? Math.round(p.coords.accuracy) : null,
-        address: ''
+        address: '',
+        at: toIsoWithOffset(acquiredAt)
       };
+      setVisitedAt(acquiredAt);
+      updateSaveButton();
       renderGeoBox('住所を取得中…');
       showCurrentMap();
       toast('現在地を取得しました', 'ok');
@@ -195,12 +230,12 @@ async function onSubmit(e) {
   e.preventDefault();
   const company = $('#f-company').value.trim();
   const member  = $('#f-member').value;
-  const visited = $('#f-visited').value;
-
+  // 訪問日時は現在地を取得した瞬間の時刻。画面からは変更できない
+  const visitedAt = state.pos ? state.pos.at : '';
   if (!company) { toast('訪問先名を入力してください', 'err'); $('#f-company').focus(); return; }
   if (!member)  { toast('担当者を選択してください', 'err'); return; }
-  if (!visited) { toast('訪問日時を入力してください', 'err'); return; }
-  if (!state.pos && !confirm('位置情報が未取得です。地図に表示されない記録になりますが、保存しますか？')) return;
+
+  if (!state.pos || !visitedAt) { toast('先に「現在地を取得」を押してください', 'err'); return; }
 
   const btn = $('#btn-save');
   btn.disabled = true;
@@ -208,7 +243,7 @@ async function onSubmit(e) {
 
   try {
     const { record, pending } = await Store.create({
-      visited_at: toIsoWithOffset(new Date(visited)),
+      visited_at: visitedAt,
       member, company,
       contact:  $('#f-contact').value.trim(),
       category: $('#f-category').value,
@@ -226,8 +261,7 @@ async function onSubmit(e) {
   } catch (err) {
     toast(`保存に失敗しました: ${err.message}`, 'err');
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'この内容で記録する';
+    updateSaveButton();
   }
 }
 
@@ -235,8 +269,9 @@ function resetForm() {
   $('#f-company').value = '';
   $('#f-contact').value = '';
   $('#f-memo').value = '';
-  $('#f-visited').value = toInputValue(new Date());
   state.pos = null;
+  setVisitedAt(null);
+  updateSaveButton();
   renderGeoBox();
   $('#map-current').classList.remove('shown');
   $('#geo-hint').style.display = 'none';
@@ -383,8 +418,11 @@ function renderSettings() {
   const s = Store.getSettings();
   $('#s-url').value = s.apiUrl;
   $('#s-token').value = s.token;
-  $('#s-member').value = s.myMember;
-  $('#member-list').innerHTML = Store.getMembers().map((m) => `<option value="${esc(m.name)}">`).join('');
+  // 担当者はシートのマスタから選ぶ（表記ゆれで無効な値が保存されるのを防ぐ）
+  const members = Store.getMembers();
+  $('#s-member').innerHTML = '<option value="">（未設定）</option>' +
+    members.map((m) => `<option value="${esc(m.name)}">${esc(m.name)}</option>`).join('');
+  $('#s-member').value = members.some((m) => m.name === s.myMember) ? s.myMember : '';
 
   $('#st-mode').textContent  = Store.mode() === 'gas' ? 'Google スプレッドシート（GAS）' : 'この端末のみ（ローカル）';
   $('#st-count').textContent = `${state.logs.length} 件`;
@@ -626,7 +664,8 @@ function bindEvents() {
 
 /* ================================ 起動 ================================ */
 async function init() {
-  $('#f-visited').value = toInputValue(new Date());
+  setVisitedAt(null);
+  updateSaveButton();
   renderMembers();
   const my = Store.getSettings().myMember;
   if (my && [...$('#f-member').options].some((o) => o.value === my)) $('#f-member').value = my;
