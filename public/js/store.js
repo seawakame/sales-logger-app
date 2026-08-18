@@ -305,6 +305,83 @@ const Store = (() => {
     return q.length;
   }
 
+  /* ----------------------- 訪問先名の候補 ----------------------- */
+
+  /** 2点間の距離（メートル） */
+  function distanceM(lat1, lng1, lat2, lng2) {
+    const R = 6371000;
+    const rad = (d) => d * Math.PI / 180;
+    const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+
+  /**
+   * 現在地の近くにある「過去に訪問した先」を距離順に返します。
+   * 通信不要・即座に返るため、再訪問の多い営業ではこちらが主役になります。
+   */
+  function nearbyPastVisits(lat, lng, radiusM = 250, limit = 5) {
+    if (!isFinite(lat) || !isFinite(lng)) return [];
+    const seen = new Set();
+    const out = [];
+    getLogs().forEach((l) => {
+      const name = String(l.company || '').trim();
+      if (!name || l.lat == null || l.lng == null || seen.has(name)) return;
+      const d = distanceM(lat, lng, l.lat, l.lng);
+      if (d > radiusM) return;
+      seen.add(name);
+      out.push({ name, distance: Math.round(d), source: 'history' });
+    });
+    out.sort((a, b) => a.distance - b.distance);
+    return out.slice(0, limit);
+  }
+
+  /**
+   * OpenStreetMap（Overpass API・無料/キー不要）から周辺の施設名を取得します。
+   * 初訪問先の補助用。日本の B2B 事業所は収録が少なく、混雑時は応答しないため、
+   * 失敗しても空配列を返すだけにして記録の妨げにはしません。
+   */
+  async function nearbyPlaces(lat, lng, radiusM = 120, timeoutMs = 8000) {
+    if (!isFinite(lat) || !isFinite(lng) || !navigator.onLine) return [];
+    const query =
+      '[out:json][timeout:10];(' +
+      `node(around:${radiusM},${lat},${lng})["name"];` +
+      `way(around:${radiusM},${lat},${lng})["name"];` +
+      ');out center tags 40;';
+    const t = withTimeout(timeoutMs);
+    try {
+      const res = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: query, signal: t.signal
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const BIZ = ['office', 'industrial', 'craft', 'shop', 'amenity', 'healthcare', 'tourism', 'leisure'];
+      const seen = new Set();
+      const out = [];
+      (data.elements || []).forEach((e) => {
+        const tag = e.tags || {};
+        const name = String(tag.name || '').trim();
+        if (!name || seen.has(name)) return;
+        const isBiz = BIZ.some((k) => tag[k]) || (tag.building && tag.building !== 'yes');
+        if (!isBiz) return;
+        const p = e.center || e;
+        seen.add(name);
+        out.push({
+          name,
+          distance: (p && p.lat != null) ? Math.round(distanceM(lat, lng, p.lat, p.lon)) : null,
+          source: 'osm'
+        });
+      });
+      out.sort((a, b) => (a.distance == null ? 9999 : a.distance) - (b.distance == null ? 9999 : b.distance));
+      return out.slice(0, 8);
+    } catch (e) {
+      return [];
+    } finally {
+      t.done();
+    }
+  }
+
   /* ------------------------------ CSV ------------------------------ */
   function toCsv(logs) {
     const cols = ['visited_at', 'member', 'company', 'contact', 'category', 'memo', 'address', 'lat', 'lng', 'accuracy'];
@@ -327,6 +404,7 @@ const Store = (() => {
     getMembers, setMembers, colorFor,
     getLogs, setLogs, getQueue, lastSync, enqueueAll,
     fetchAll, create, flushQueue, remove,
-    reverseGeocode, toCsv, clearLocal, uuid
+    reverseGeocode, toCsv, clearLocal, uuid,
+    nearbyPastVisits, nearbyPlaces, distanceM
   };
 })();

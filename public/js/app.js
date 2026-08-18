@@ -151,6 +151,7 @@ function getCurrentPosition() {
       };
       setVisitedAt(acquiredAt);
       updateSaveButton();
+      renderCompanySuggest();
       renderGeoBox('住所を取得中…');
       showCurrentMap();
       toast('現在地を取得しました', 'ok');
@@ -207,6 +208,7 @@ function showCurrentMap() {
       state.pos.lng = +lng.toFixed(6);
       state.pos.accuracy = null;      // 手動調整したので GPS 精度は無効化
       renderGeoBox('住所を取得中…');
+      renderCompanySuggest(false);
       state.pos.address = await Store.reverseGeocode(state.pos.lat, state.pos.lng);
       renderGeoBox();
     };
@@ -223,6 +225,44 @@ function showCurrentMap() {
     state.markers.current.setLatLng([state.pos.lat, state.pos.lng]);
   }
   setTimeout(() => state.maps.current.invalidateSize(), 60);
+}
+
+/* ======================= 訪問先名の候補表示 ======================= */
+let suggestToken = 0;
+
+/**
+ * 現在地から訪問先名の候補を表示します。
+ *  ・過去の訪問履歴（通信不要・即時）を最優先で表示
+ *  ・OpenStreetMap の周辺施設は取得でき次第あとから追記（失敗時は何も出さない）
+ * @param {boolean} withOsm false なら履歴のみ更新（地図ドラッグ時など）
+ */
+async function renderCompanySuggest(withOsm = true) {
+  const box = $('#company-suggest');
+  const token = ++suggestToken;
+  if (!state.pos) { box.innerHTML = ''; return; }
+  const { lat, lng } = state.pos;
+
+  const chips = (list, cls) => '<div class="suggest-row">' + list.map((c) =>
+    `<button type="button" class="suggest-chip ${cls}" data-name="${esc(c.name)}">` +
+    `<span class="name">${esc(c.name)}</span>` +
+    (c.distance != null ? `<span class="d">${c.distance}m</span>` : '') +
+    '</button>').join('') + '</div>';
+
+  const past = Store.nearbyPastVisits(lat, lng);
+  let html = past.length
+    ? `<div class="suggest-label">この付近の過去の訪問先</div>${chips(past, 'history')}`
+    : '';
+  box.innerHTML = html;
+  if (!withOsm) return;
+
+  const places = await Store.nearbyPlaces(lat, lng);
+  if (token !== suggestToken || !state.pos) return;   // 取り直された場合は破棄
+  const known = new Set(past.map((p) => p.name));
+  const fresh = places.filter((p) => !known.has(p.name));
+  if (fresh.length) {
+    box.innerHTML = html +
+      `<div class="suggest-label">周辺の施設（OpenStreetMap）</div>${chips(fresh, 'osm')}`;
+  }
 }
 
 /* ============================== ② 記録の保存 ============================== */
@@ -272,6 +312,8 @@ function resetForm() {
   state.pos = null;
   setVisitedAt(null);
   updateSaveButton();
+  suggestToken++;
+  $('#company-suggest').innerHTML = '';
   renderGeoBox();
   $('#map-current').classList.remove('shown');
   $('#geo-hint').style.display = 'none';
@@ -553,6 +595,12 @@ function bindEvents() {
   $$('.tabbar button').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
 
   $('#btn-gps').addEventListener('click', getCurrentPosition);
+  $('#company-suggest').addEventListener('click', (e) => {
+    const chip = e.target.closest('.suggest-chip');
+    if (!chip) return;
+    $('#f-company').value = chip.dataset.name;
+    $('#f-company').focus();
+  });
   $('#log-form').addEventListener('submit', onSubmit);
   $('#f-member').addEventListener('change', () => {
     if (state.markers.current) state.markers.current.setIcon(pinIcon(Store.colorFor($('#f-member').value)));

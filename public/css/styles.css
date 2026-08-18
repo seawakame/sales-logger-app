@@ -361,3 +361,23 @@ select { appearance: none; background-image: none; }
   user-select: none;
 }
 .readonly-box .lock { font-size: 13px; opacity: .6; }
+
+/* --------------------- 訪問先名の候補チップ --------------------- */
+.suggest { margin-top: 8px; }
+.suggest:empty { display: none; }
+.suggest-label {
+  font-size: 11.5px; font-weight: 700; color: var(--text-muted);
+  margin: 6px 0 5px; display: flex; align-items: center; gap: 5px;
+}
+.suggest-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.suggest-chip {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 7px 11px; border-radius: 999px;
+  font-family: inherit; font-size: 13px; font-weight: 700;
+  color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--border); cursor: pointer; max-width: 100%;
+}
+.suggest-chip:active { background: var(--primary-soft); border-color: var(--primary); }
+.suggest-chip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggest-chip .d { font-size: 11px; font-weight: 400; color: var(--text-muted); flex: none; }
+.suggest-chip.history { border-color: var(--primary); }
