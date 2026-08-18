@@ -97,6 +97,7 @@ const state = {
   hiddenMembers: new Set(),
   maps: { current: null, main: null },
   markers: { current: null, layer: null, accuracy: null },
+  mapShownFor: null,      // ミニ地図に表示中の訪問ID
   view: 'record',
   deferredInstall: null,
   editingId: null,
@@ -163,7 +164,7 @@ function getCurrentPosition() {
       };
       renderCompanySuggest();
       renderGeoBox('住所を取得中…');
-      showCurrentMap();
+      showCurrentMap(state.pos);
       startVisit();          // 取得＝到着として、そのまま訪問中にする
       if (state.pos.accuracy && state.pos.accuracy > 100) {
         toast(`訪問を開始しました。GPS 精度が低めです（±${state.pos.accuracy}m）`);
@@ -208,12 +209,13 @@ function renderGeoBox(addressOverride) {
  * 位置の改ざんを防ぐため、ピンのドラッグと地図タップによる座標変更はできません。
  * 地図のパン・ズームは可能ですが、記録される座標は GPS が返した値のまま変わりません。
  */
-function showCurrentMap() {
+function showCurrentMap(p) {
+  if (!p || !isFinite(p.lat) || !isFinite(p.lng)) return;
   const el = $('#map-current');
   el.classList.add('shown');
   $('#geo-hint').style.display = 'block';
 
-  const pos = [state.pos.lat, state.pos.lng];
+  const pos = [p.lat, p.lng];
   if (!state.maps.current) {
     state.maps.current = L.map(el, { zoomControl: true, attributionControl: true }).setView(pos, 17);
     osmLayer().addTo(state.maps.current);
@@ -232,11 +234,11 @@ function showCurrentMap() {
     state.maps.current.removeLayer(state.markers.accuracy);
     state.markers.accuracy = null;
   }
-  if (state.pos.accuracy) {
+  if (p.accuracy) {
     const themeColor =
       getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#4f46e5';
     state.markers.accuracy = L.circle(pos, {
-      radius: state.pos.accuracy,
+      radius: p.accuracy,
       color: themeColor, weight: 1, opacity: .55,
       fillColor: themeColor, fillOpacity: .12,
       interactive: false
@@ -372,6 +374,7 @@ function resetForm() {
   $('#company-suggest').innerHTML = '';
   $('#contact-suggest').innerHTML = '';
   renderGeoBox();
+  state.mapShownFor = null;
   $('#map-current').classList.remove('shown');
   $('#geo-hint').style.display = 'none';
   $('#btn-gps').innerHTML = '📍 現在地を取得して訪問を開始';
@@ -449,7 +452,17 @@ function renderActiveVisit() {
   const v = Store.getActiveVisit();
   const box = $('#active-visit');
   box.hidden = !v;
-  $('#gps-card').hidden = !!v;
+  // 訪問中も「記録された位置」として地図は残す（取得ボタンと住所欄だけ隠す）
+  $('#gps-card').hidden = false;
+  $('#gps-title').textContent = v ? '記録された位置' : '① 訪問先に到着したら';
+  $('#btn-gps').hidden = !!v;
+  $('#geo-box').hidden = !!v;
+  $('#map-current').classList.toggle('compact', !!v);
+  if (v && state.mapShownFor !== v.id) {
+    showCurrentMap(v);                  // 再起動後も到着地点を復元して表示
+    state.mapShownFor = v.id;
+    setTimeout(() => state.maps.current && state.maps.current.invalidateSize(), 80);
+  }
   if (v) {
     const st = new Date(v.started_at);
     const min = Math.max(0, Math.round((Date.now() - st) / 60000));

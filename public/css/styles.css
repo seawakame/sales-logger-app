@@ -416,3 +416,6 @@ select { appearance: none; background-image: none; }
   background: var(--primary-soft); border-radius: 9px;
   font-size: 12.5px; font-weight: 700; color: var(--primary);
 }
+
+/* 訪問中は地図をやや低くして、入力欄を画面に収める */
+#map-current.compact { height: 150px; }
